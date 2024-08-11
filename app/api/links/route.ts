@@ -1,21 +1,43 @@
-import { NextResponse } from 'next/server'
-import fs from 'fs/promises'
-import path from 'path'
+import { NextRequest, NextResponse } from 'next/server';
+import { PrismaClient } from '@prisma/client';
+import { writeFile } from 'fs/promises';
+import path from 'path';
 
-const dbPath = path.join(process.cwd(), 'db.json')
+const prisma = new PrismaClient();
 
-export async function GET() {
-  const data = JSON.parse(await fs.readFile(dbPath, 'utf8'))
-  return NextResponse.json(data.links)
+export async function POST(request: NextRequest) {
+  try {
+    const formData = await request.formData();
+    const url = formData.get('url') as string;
+    const title = formData.get('title') as string;
+    const image = formData.get('image') as File;
+
+    if (!url || !title || !image) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+
+    // Save the image
+    const bytes = await image.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+    const imageName = `${Date.now()}-${image.name}`;
+    const imagePath = path.join(process.cwd(), 'public', 'uploads', imageName);
+    await writeFile(imagePath, buffer);
+    const imageUrl = `/uploads/${imageName}`;
+
+    // Save to database
+    const newArtifact = await prisma.artifact.create({
+      data: {
+        url,
+        title,
+        imageUrl,
+      },
+    });
+
+    return NextResponse.json(newArtifact, { status: 201 });
+  } catch (error) {
+    console.error('Error in POST /api/links:', error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
 }
 
-export async function POST(request: Request) {
-  const { url } = await request.json()
-  const data = JSON.parse(await fs.readFile(dbPath, 'utf8'))
-  const id = Math.random().toString(36).substr(2, 9)
-  data.links.push({ id, url })
-  
-  await fs.writeFile(dbPath, JSON.stringify(data, null, 2))
-  
-  return NextResponse.json({ id, url })
-}
+// ... (keep or add GET method to fetch artifacts)
